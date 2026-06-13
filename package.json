@@ -1,0 +1,21 @@
+{
+  "name": "tiktok-archiver",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "build": "nuxt build",
+    "dev": "nuxt dev",
+    "generate": "nuxt generate",
+    "preview": "nuxt preview",
+    "postinstall": "nuxt prepare"
+  },
+  "dependencies": {
+    "@nuxt/ui": "^4.8.2",
+    "nuxt": "^4.4.8",
+    "playwright": "^1.60.0",
+    "execa": "^7.1.1",
+    "archiver": "^5.3.1",
+    "vue": "^3.5.35",
+    "vue-router": "^5.1.0"
+  }
+}
