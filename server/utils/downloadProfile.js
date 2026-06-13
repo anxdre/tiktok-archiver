@@ -1,7 +1,7 @@
 import fs from 'fs/promises'
 import fsSync from 'fs'
 import path from 'path'
-import execa from 'execa'
+import { execa } from 'execa'
 import archiver from 'archiver'
 
 const ROOT = process.cwd()
