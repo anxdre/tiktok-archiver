@@ -1,7 +1,6 @@
 version: '3.8'
 
 services:
-  # Main Nuxt application
   app:
     build: .
     container_name: tiktok-archiver-app
@@ -12,8 +11,7 @@ services:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
     depends_on:
-      redis:
-        condition: service_healthy
+      - redis
     volumes:
       - ./downloads:/app/downloads
       - ./archives:/app/archives
@@ -23,12 +21,9 @@ services:
     networks:
       - tiktok-network
 
-  # Redis service for BullMQ job queue
   redis:
     image: redis:7-alpine
     container_name: tiktok-archiver-redis
-    ports:
-      - "6379:6379"
     volumes:
       - redis-data:/data
     restart: unless-stopped
