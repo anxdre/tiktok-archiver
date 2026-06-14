@@ -1,38 +1,57 @@
-# TikTok Archiver (MVP)
+# TikTok Archiver
 
-Simple Nuxt 4 app to archive public TikTok profiles by downloading videos and producing a ZIP.
+A lightweight Nuxt 4 app for archiving public TikTok profiles by fetching video metadata, downloading selected videos, and creating ZIP archives.
 
-Features
-- Enter a TikTok username and start an archive job
-- Background download using `yt-dlp` (no database)
-- Job progress persisted to `jobs/{jobId}.json`
-- Archive available as `archives/{jobId}.zip`
+## What it does
 
-Project structure
+- Fetches a public TikTok user's video list and profile metadata
+- Allows selecting specific videos to download
+- Downloads selected videos in the background with WebSocket progress updates
+- Persists job state in `jobs/{jobId}.json`
+- Generates ZIP archives for selected videos
+- Supports retrying failed videos and cancelling active download jobs
+
+## Project structure
 
 ```
 root/
 ├── app/
 │   └── app.vue
-├── pages/
+├── app/pages/
 │   └── index.vue
 ├── server/
 │   ├── api/
-│   │   ├── archive.post.js
-│   │   ├── status/[jobId].get.js
-│   │   └── download/[jobId].get.js
+│   │   ├── cancel-job.post.js
+│   │   ├── download/
+│   │   │   ├── videos.post.js
+│   │   │   └── zip-selected.post.js
+│   │   ├── fetch-list.post.js
+│   │   ├── retry.post.js
+│   │   ├── status/
+│   │   ├── thumb/
+│   │   └── thumbnail/
 │   └── utils/
-│       └── downloadProfile.js
+│       ├── cleanup.js
+│       ├── downloadQueue.js
+│       ├── jobStore.js
+│       ├── tiktokProfileFetcher.js
+│       ├── websocketServer.js
+│       └── wsEvents.js
+├── server/plugins/
+│   ├── cleanup.js
+│   ├── download-queue.js
+│   └── ws-server.js
 ├── jobs/
 ├── downloads/
 ├── archives/
+├── public/
 ├── package.json
 └── README.md
 ```
 
-Quickstart
+## Quickstart
 
-1. Install dependencies
+### 1. Install dependencies
 
 ```bash
 npm install
@@ -40,16 +59,19 @@ npm install
 pnpm install
 ```
 
-2. Install `yt-dlp` on your system (required):
+### 2. Install `yt-dlp`
+
+This project uses `yt-dlp` to download TikTok videos.
 
 ```bash
-# using pip
 pip install -U yt-dlp
-
-# or download the binary from https://github.com/yt-dlp/yt-dlp
 ```
 
-3. Run the app
+Or download the binary from:
+
+https://github.com/yt-dlp/yt-dlp
+
+### 3. Run the app
 
 ```bash
 npm run dev
@@ -57,139 +79,123 @@ npm run dev
 pnpm dev
 ```
 
-Open the app in your browser (typically http://localhost:3000). Enter a TikTok username and click "Archive". The UI polls status every 2s and shows a Download button when finished.
+Open `http://localhost:3000`, enter a TikTok username, select videos, and use the download controls.
 
-Server API
+## Current behavior
 
-- Start an archive job: POST `/api/archive`
-  - Body: `{ "username": "someuser" }`
-  - Returns: `{ "jobId": "..." }`
-  - Implementation: [server/api/archive.post.js](server/api/archive.post.js)
+- `Fetch Videos`: loads TikTok profile and video metadata
+- `Download Selected`: queues only selected `pending` or `failed` videos for download
+- `Retry Failed`: retries failed videos in the current selection, or all failed videos if nothing is selected
+- `Download Selected ZIP`: creates a ZIP archive from downloaded videos in the current selection
+- `Download All ZIP`: creates a ZIP from all downloaded videos in the job
+- `Cancel downloads`: cancels active downloads for the current job
+- Overlay popup shows progress only while downloads are active or after a selection-triggered download completes
 
-- Get job status: GET `/api/status/{jobId}`
-  - Returns contents of `jobs/{jobId}.json`
-  - Implementation: [server/api/status/[jobId].get.js](server/api/status/[jobId].get.js)
+## Available API endpoints
 
-- Download archive: GET `/api/download/{jobId}`
-  - Streams `archives/{jobId}.zip` with Content-Disposition attachment
-  - Implementation: [server/api/download/[jobId].get.js](server/api/download/[jobId].get.js)
+- `POST /api/fetch-list`
+  - Request body: `{ "username": "cristiano" }`
+  - Creates a new job and returns `jobId`, `videos`, and `profile`
 
-Key files
+- `POST /api/download/videos`
+  - Request body: `{ "jobId": "...", "videoIds": ["id1", "id2"] }`
+  - Queues selected videos for download
 
-- Frontend page: [pages/index.vue](pages/index.vue)
-- Download & zip worker: [server/utils/downloadProfile.js](server/utils/downloadProfile.js)
-- Job files stored under: [jobs](jobs)
-- Downloaded videos stored under: [downloads](downloads)
-- Produced ZIP archives: [archives](archives)
+- `POST /api/retry`
+  - Request body: `{ "jobId": "...", "videoIds": ["id1"] }`
+  - Retries failed videos; if no `videoIds` provided, retries all failed videos
 
-Notes & behavior
+- `POST /api/cancel-job`
+  - Request body: `{ "jobId": "..." }`
+  - Cancels pending / active downloads for the job
 
-- The server runs downloads in a background async function started by the POST `/api/archive` handler. Job metadata is stored in `jobs/{jobId}.json` and includes:
+- `POST /api/download/zip-selected`
+  - Request body: `{ "jobId": "...", "selectedVideoIds": ["id1", "id2"] }`
+  - Creates a ZIP archive with downloaded selected videos
 
-```json
-{
-  "status": "processing", // pending, processing, zipping, finished, failed
-  "username": "someuser",
-  "total": 0,
-  "completed": 0,
-  "archive": null
-}
-```
+- `POST /api/cleanup-old-storage`
+  - Request body: none
+  - Triggers manual cleanup of stale job files, downloads, and archives
+  - Note: automatic cleanup runs daily when the Nuxt server starts
 
-- Downloading is performed by calling the `yt-dlp` binary using `execa`. You must have `yt-dlp` installed and available in PATH.
-- After successful downloads, the code zips the `downloads/{jobId}` folder into `archives/{jobId}.zip` using the `archiver` package.
-- If `yt-dlp` or zipping fails, job status becomes `failed` and the error message is written to the job JSON.
+- WebSocket support is available via the frontend `useWebSocket` composable to receive progress events.
 
-Security & limitations
+## WebSocket setup
 
-- No authentication — this is an MVP.
-- No rate-limiting; use carefully.
-- Downloads run on the server directly; be mindful of disk usage and quotas.
-
-Troubleshooting
-
-- If you see an import error for `execa`, ensure you have the correct package version. The code uses named import `import { execa } from 'execa'`.
-- If downloads fail, confirm `yt-dlp` works from the shell: `yt-dlp https://www.tiktok.com/@username`.
-
-Extending this project
-
-- Add persistent job queue or use Redis for distributed workers
-- Add authentication and user quotas
-- Stream live progress via WebSockets instead of polling
-
-If you want, I can run `npm install` and start the dev server here to test the flow — tell me which package manager to use. 
-# Nuxt Minimal Starter
-
-Look at the [Nuxt documentation](https://nuxt.com/docs/getting-started/introduction) to learn more.
-
-## Setup
-
-Make sure to install dependencies:
+- The WebSocket server starts automatically when the Nuxt app launches via `server/plugins/ws-server.js`.
+- Default WebSocket port: `3001`.
+- Override with `WS_PORT` if needed:
 
 ```bash
-# npm
-npm install
-
-# pnpm
-pnpm install
-
-# yarn
-yarn install
-
-# bun
-bun install
+WS_PORT=4001 npm run dev
+# or
+WS_PORT=4001 pnpm dev
 ```
 
-## Development Server
+- The frontend uses `useWebSocket` to connect to `ws://<hostname>:<port>`.
 
-Start the development server on `http://localhost:3000`:
+## Cleanup worker
+
+- The cleanup scheduler starts automatically via `server/plugins/cleanup.js` when Nitro boots.
+- It runs once at startup and then every 24 hours.
+- By default it removes job state, downloads, and archives older than 7 days.
+- Override the TTL with `CLEANUP_TTL_DAYS`:
 
 ```bash
-# npm
+CLEANUP_TTL_DAYS=14 npm run dev
+```
+
+- You can also trigger cleanup manually with `POST /api/cleanup-old-storage`.
+
+## Notes
+
+- This project persists state in JSON files under `jobs/` and does not use a database.
+- Downloaded video files are stored in `downloads/{jobId}/`
+- Generated ZIP files are stored in `archives/`
+- The backend uses BullMQ with Redis for download queue management
+- A valid Redis instance should be available at `redis://127.0.0.1:6379` by default
+
+## Cleaned up unused code
+
+- Removed stale selection-only computed helpers that were not used by the current UI
+- Removed obsolete `downloadPendingVideos` helper from the frontend
+
+## Contributing
+
+Contributions are welcome! If you want to help improve this project:
+
+1. Fork the repository
+2. Create a feature branch
+3. Open a Pull Request with a clear description of what changed
+
+Suggested improvements:
+
+- Add tests for API handlers and frontend selection/download behavior
+- Improve the download progress overlay and error messaging
+- Add authentication or per-user job isolation
+- Add support for downloading thumbnails or video metadata export
+- Add better Redis / BullMQ job recovery logic
+
+Please ensure code is formatted consistently and keep changes small for easy review.
+
+## Development notes
+
+- The frontend entry is `app/pages/index.vue`
+- The download queue is implemented in `server/utils/downloadQueue.js`
+- Job persistence is implemented in `server/utils/jobStore.js`
+- WebSocket events are emitted from `server/utils/wsEvents.js`
+
+## Build / preview
+
+```bash
 npm run dev
-
-# pnpm
+# or
 pnpm dev
-
-# yarn
-yarn dev
-
-# bun
-bun run dev
 ```
 
-## Production
-
-Build the application for production:
+For production preview:
 
 ```bash
-# npm
 npm run build
-
-# pnpm
-pnpm build
-
-# yarn
-yarn build
-
-# bun
-bun run build
-```
-
-Locally preview production build:
-
-```bash
-# npm
 npm run preview
-
-# pnpm
-pnpm preview
-
-# yarn
-yarn preview
-
-# bun
-bun run preview
 ```
-
-Check out the [deployment documentation](https://nuxt.com/docs/getting-started/deployment) for more information.

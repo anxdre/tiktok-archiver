@@ -8,11 +8,18 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, statusMessage: 'username is required' })
   }
 
+  // Validate and sanitize limit parameter
+  let limit = (body && body.limit) || null
+  if (limit && (typeof limit !== 'number' || limit < 1)) {
+    limit = null
+  }
+
   const jobId = Date.now().toString(36) + Math.random().toString(36).slice(2, 8)
   const jobFile = path.join(process.cwd(), 'jobs', `${jobId}.json`)
   const initial = {
     status: 'pending',
     username,
+    limit: limit || null,
     total: 0,
     completed: 0,
     archive: null,
@@ -38,7 +45,7 @@ export default defineEventHandler(async (event) => {
       await updateJob({ status: 'processing' })
       const mod = await import('../utils/downloadProfile.js')
       const downloader = mod.downloadProfile || mod.default
-      await downloader(jobId, username, updateJob)
+      await downloader(jobId, username, updateJob, limit)
     } catch (err) {
       await updateJob({ status: 'failed', error: String(err) })
     }

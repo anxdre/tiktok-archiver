@@ -4,10 +4,10 @@ import path from 'path'
 import { sendStream } from 'h3'
 
 export default defineEventHandler(async (event) => {
-  const { jobId } = event.context.params || {}
-  if (!jobId) throw createError({ statusCode: 400, statusMessage: 'jobId required' })
+  const name = event.context.params?.name
+  if (!name) throw createError({ statusCode: 400, statusMessage: 'name is required' })
 
-  const archivePath = path.join(process.cwd(), 'archives', jobId)
+  const archivePath = path.join(process.cwd(), 'archives', name)
   try {
     await fsPromises.access(archivePath)
   } catch (e) {
@@ -16,7 +16,7 @@ export default defineEventHandler(async (event) => {
 
   const res = event.node.res
   res.setHeader('Content-Type', 'application/zip')
-  res.setHeader('Content-Disposition', `attachment; filename="${jobId}.zip"`)
+  res.setHeader('Content-Disposition', `attachment; filename="${name}"`)
 
   const stream = fs.createReadStream(archivePath)
   return sendStream(event, stream)
