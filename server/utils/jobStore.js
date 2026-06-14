@@ -1,6 +1,5 @@
 import fs from 'fs/promises'
 import path from 'path'
-import { broadcastJobUpdate } from './wsEvents.js'
 
 const ROOT = process.cwd()
 const JOBS_DIR = path.join(ROOT, 'jobs')
@@ -92,7 +91,6 @@ export async function writeJob(job) {
   job.updatedAt = new Date().toISOString()
   await fs.writeFile(tempFile, JSON.stringify(job, null, 2), 'utf8')
   await fs.rename(tempFile, file)
-  broadcastJobUpdate(job.jobId, job)
   return job
 }
 

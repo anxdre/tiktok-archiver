@@ -209,8 +209,8 @@
 </template>
 
 <script setup>
-import { ref, computed, reactive, watch, onMounted, onBeforeUnmount } from 'vue'
-import { useWebSocket} from "~~/composables/useWebSocket.js";
+import { ref, computed, reactive, watch, onBeforeUnmount } from 'vue'
+import { useJobPolling } from '~~/composables/useJobPolling.js'
 
 const username = ref('')
 const profile = ref({})
@@ -229,8 +229,7 @@ const selectedVideoIds = ref([])
 const thumbLoading = reactive({})
 const selectionDownloadTriggered = ref(false)
 
-const { connected: socketConnected, connect, send, close } = useWebSocket()
-let reconnectTimer = null
+const { stopPolling, startPolling } = useJobPolling(jobId, updateJobData)
 
 const profileInitials = computed(() => {
   const name = profile.value.displayName || profile.value.username || username.value || ''
@@ -289,73 +288,12 @@ function updateJobData(job) {
   updateLastUpdated()
 }
 
-function applyVideoEvent(data) {
-  if (!data?.videoId) {
-    return
-  }
-
-  const index = videos.value.findIndex((video) => video.id === data.videoId)
-  if (index === -1) {
-    return
-  }
-
-  const current = videos.value[index]
-  const updated = {
-    ...current,
-    status: data.status || current.status,
-    error: data.error || current.error || null,
-    filePath: data.filePath || current.filePath
-  }
-  videos.value.splice(index, 1, updated)
-  if (data.jobStatus) {
-    status.value = data.jobStatus
-  }
-  updateLastUpdated()
-}
-
-function handleSocketMessage(data) {
-  if (!data?.type) {
-    return
-  }
-
-  if (data.type === 'job-update' && data.job) {
-    updateJobData(data.job)
-    return
-  }
-
-  if (['videoQueued', 'videoDownloading', 'videoCompleted', 'videoFailed', 'videoCancelled'].includes(data.type)) {
-    applyVideoEvent(data)
-    return
-  }
-}
-
 watch(selectedSubsetCompleted, (completed) => {
   if (!completed) {
     overlayDismissed.value = false
   }
 })
 
-function setupWebSocket() {
-  if (typeof window === 'undefined') return
-  connect(handleSocketMessage, undefined, subscribeToJob)
-}
-
-function scheduleReconnect() {
-  if (reconnectTimer || !jobId.value) return
-  reconnectTimer = window.setTimeout(() => {
-    reconnectTimer = null
-    setupWebSocket()
-  }, 2000)
-}
-
-function subscribeToJob() {
-  if (!socketConnected.value || !jobId.value) return
-  send({ type: 'subscribe', jobId: jobId.value })
-}
-
-function closeWebSocket() {
-  close()
-}
 
 function selectVideo(video) {
   selectedVideoIds.value = selectedVideoIds.value.includes(video.id)
@@ -388,7 +326,7 @@ async function fetchList() {
   profile.value = {}
   status.value = 'idle'
   selectedVideoIds.value = []
-  closeWebSocket()
+  stopPolling()
 
   const controller = new AbortController()
   fetchController.value = controller
@@ -415,8 +353,6 @@ async function fetchList() {
     })
     status.value = 'idle'
     selectedVideoIds.value = []
-    setupWebSocket()
-    subscribeToJob()
   } catch (err) {
     if (err.name === 'AbortError') {
       errorMessage.value = 'Fetch cancelled by user.'
@@ -487,41 +423,45 @@ async function retryFailed() {
   }
   
   if (videoIds.length === 0) return
-  
-  await fetch('/api/retry', {
+
+  const res = await fetch('/api/retry', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({jobId: jobId.value, videoIds})
   })
+
+  if (res.ok) {
+    startPolling()
+  }
 }
 
 async function retryVideo(video) {
   if (!jobId.value) return
-  await fetch('/api/retry', {
+  const res = await fetch('/api/retry', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({jobId: jobId.value, videoIds: [video.id]})
   })
+
+  if (res.ok) {
+    startPolling()
+  }
 }
 
 async function downloadSelectedVideos() {
   if (!jobId.value || selectedVideoIds.value.length === 0) return
   selectionDownloadTriggered.value = true
   overlayDismissed.value = false
-  await fetch('/api/download/videos', {
+  const res = await fetch('/api/download/videos', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({jobId: jobId.value, videoIds: selectedVideoIds.value})
   })
+
+  if (res.ok) {
+    startPolling()
+  }
 }
-
-onMounted(() => {
-  setupWebSocket()
-})
-
-onBeforeUnmount(() => {
-  closeWebSocket()
-})
 
 function onThumbLoad(id) {
   thumbLoading[id] = false

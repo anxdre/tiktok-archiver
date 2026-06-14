@@ -1,6 +1,5 @@
 import { readJob, updateJob, updateVideos } from '../utils/jobStore.js'
 import { downloadQueue } from '../utils/downloadQueue.js'
-import { emitProgress } from '../utils/wsEvents.js'
 
 export default defineEventHandler(async (event) => {
   const body = await readBody(event)
@@ -22,15 +21,6 @@ export default defineEventHandler(async (event) => {
   }
 
   await updateVideos(jobId, videosToRetry.map((video) => video.id), { status: 'pending', error: null })
-  videosToRetry.forEach((video) => {
-    emitProgress('videoQueued', {
-      jobId,
-      videoId: video.id,
-      status: 'pending',
-      progress: 0
-    })
-  })
-
   await updateJob(jobId, { status: 'processing' })
 
   await Promise.all(

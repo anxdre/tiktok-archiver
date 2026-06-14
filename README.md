@@ -6,7 +6,7 @@ A lightweight Nuxt 4 app for archiving public TikTok profiles by fetching video 
 
 - Fetches a public TikTok user's video list and profile metadata
 - Allows selecting specific videos to download
-- Downloads selected videos in the background with WebSocket progress updates
+- Downloads selected videos in the background with polling progress updates
 - Persists job state in `jobs/{jobId}.json`
 - Generates ZIP archives for selected videos
 - Supports retrying failed videos and cancelling active download jobs
@@ -35,8 +35,6 @@ root/
 │       ├── downloadQueue.js
 │       ├── jobStore.js
 │       ├── tiktokProfileFetcher.js
-│       ├── websocketServer.js
-│       └── wsEvents.js
 ├── server/plugins/
 │   ├── cleanup.js
 │   ├── download-queue.js
@@ -118,21 +116,13 @@ Open `http://localhost:3000`, enter a TikTok username, select videos, and use th
   - Triggers manual cleanup of stale job files, downloads, and archives
   - Note: automatic cleanup runs daily when the Nuxt server starts
 
-- WebSocket support is available via the frontend `useWebSocket` composable to receive progress events.
+- Job status is refreshed by polling the `GET /api/status/{jobId}` endpoint every 2 seconds.
 
-## WebSocket setup
+## Polling updates
 
-- The WebSocket server starts automatically when the Nuxt app launches via `server/plugins/ws-server.js`.
-- Default WebSocket port: `3001`.
-- Override with `WS_PORT` if needed:
-
-```bash
-WS_PORT=4001 npm run dev
-# or
-WS_PORT=4001 pnpm dev
-```
-
-- The frontend uses `useWebSocket` to connect to `ws://<hostname>:<port>`.
+- The frontend polls `GET /api/status/{jobId}` to receive progress and queue state.
+- Polling stops automatically when a job reaches a terminal status such as `finished`, `failed`, `partial`, or `cancelled`.
+- Polling restarts automatically when a new job is opened.
 
 ## Cleanup worker
 
@@ -183,7 +173,6 @@ Please ensure code is formatted consistently and keep changes small for easy rev
 - The frontend entry is `app/pages/index.vue`
 - The download queue is implemented in `server/utils/downloadQueue.js`
 - Job persistence is implemented in `server/utils/jobStore.js`
-- WebSocket events are emitted from `server/utils/wsEvents.js`
 
 ## Build / preview
 

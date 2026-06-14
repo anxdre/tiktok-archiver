@@ -4,7 +4,6 @@ import { Queue, Worker } from 'bullmq'
 import IORedis from 'ioredis'
 import { execa } from 'execa'
 import { readJob, updateJob, updateVideo, updateVideos, syncJobStatus, getDownloadPath } from './jobStore.js'
-import { emitProgress } from './wsEvents.js'
 
 const ROOT = process.cwd()
 const REDIS_URL = process.env.REDIS_URL || 'redis://127.0.0.1:6379'
@@ -66,16 +65,6 @@ export async function cancelJobDownloads(jobId) {
   await updateVideos(jobId, cancelledIds, { status: 'pending', error: 'Cancelled by user' })
   await updateJob(jobId, { status: 'cancelled' })
 
-  cancelledIds.forEach((videoId) => {
-    emitProgress('videoCancelled', {
-      jobId,
-      videoId,
-      status: 'pending',
-      progress: 0,
-      error: 'Cancelled by user'
-    })
-  })
-
   return cancelledIds.length
 }
 
@@ -98,13 +87,6 @@ export const downloadQueue = new Queue(QUEUE_NAME, {
 })
 
 async function downloadSingleVideo(jobId, video) {
-  await emitProgress('videoDownloading', {
-    jobId,
-    videoId: video.id,
-    status: 'downloading',
-    progress: 0
-  })
-
   await updateVideo(jobId, video.id, { status: 'downloading', error: null })
   await updateJob(jobId, { status: 'processing' })
 
@@ -144,13 +126,6 @@ async function downloadSingleVideo(jobId, video) {
         status: 'pending',
         error: 'Cancelled by user'
       })
-      await emitProgress('videoCancelled', {
-        jobId,
-        videoId: video.id,
-        status: 'pending',
-        progress: 0,
-        error: 'Cancelled by user'
-      })
       return
     }
     throw error
@@ -160,14 +135,6 @@ async function downloadSingleVideo(jobId, video) {
     status: 'done',
     filePath: path.relative(ROOT, outputPath),
     error: null
-  })
-
-  await emitProgress('videoCompleted', {
-    jobId,
-    videoId: video.id,
-    status: 'done',
-    progress: 100,
-    filePath: path.relative(ROOT, outputPath)
   })
 }
 
@@ -210,13 +177,6 @@ export function startDownloadWorker() {
     if (attempts >= maxAttempts) {
       await updateVideo(job.data.jobId, job.data.video.id, {
         status: 'failed',
-        error: String(err ?? 'Download failed')
-      })
-      await emitProgress('videoFailed', {
-        jobId: job.data.jobId,
-        videoId: job.data.video.id,
-        status: 'failed',
-        progress: 0,
         error: String(err ?? 'Download failed')
       })
       await syncJobStatus(job.data.jobId)
