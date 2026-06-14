@@ -1,4 +1,6 @@
-# Build stage
+# =========================
+# Build Stage
+# =========================
 FROM node:20-alpine AS builder
 
 # Install pnpm
@@ -6,53 +8,80 @@ RUN npm install -g pnpm
 
 WORKDIR /app
 
-# Copy package files
+# Copy dependency files
 COPY package.json pnpm-lock.yaml ./
 
-# Install dependencies
+# Install all dependencies
 RUN pnpm install --frozen-lockfile
 
 # Copy source code
 COPY . .
 
-# Build the application
+# Build Nuxt
 RUN pnpm run build
 
-# Production stage
+# Remove dev dependencies
+RUN pnpm prune --prod
+
+
+# =========================
+# Production Stage
+# =========================
 FROM node:20-alpine
 
-# Install pnpm and Playwright dependencies
-RUN npm install -g pnpm && \
-    apk add --no-cache \
+# Install runtime dependencies
+RUN apk add --no-cache \
     chromium \
-    firefox \
-    wqy-zenhei \
+    nss \
+    freetype \
+    harfbuzz \
+    ca-certificates \
     ttf-dejavu \
-    ttf-liberation \
-    ttf-liberation-mono \
-    ca-certificates
+    yt-dlp \
+    ffmpeg \
+    wget
+
+# Install pnpm
+RUN npm install -g pnpm
+
+# Playwright configuration
+ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+ENV PLAYWRIGHT_BROWSERS_PATH=0
+ENV CHROMIUM_PATH=/usr/bin/chromium-browser
 
 WORKDIR /app
 
 # Copy package files
 COPY package.json pnpm-lock.yaml ./
 
-# Install production dependencies only
-RUN pnpm install --prod --frozen-lockfile
+# Copy production node_modules from builder
+COPY --from=builder /app/node_modules ./node_modules
 
-# Copy built application from builder
+# Copy Nuxt output
 COPY --from=builder /app/.output ./.output
-COPY --from=builder /app/.nuxt ./.nuxt
 
-# Create directories for downloads and archives
-RUN mkdir -p /app/downloads /app/archives /app/jobs /app/storage
+# Create storage directories
+RUN mkdir -p \
+    /app/downloads \
+    /app/archives \
+    /app/jobs \
+    /app/storage
 
-# Expose port (Nuxt default)
+# Volume mount points
+VOLUME ["/app/downloads"]
+VOLUME ["/app/archives"]
+VOLUME ["/app/jobs"]
+VOLUME ["/app/storage"]
+
+# Expose Nuxt port
 EXPOSE 3000
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD node -e "require('http').get('http://localhost:3000', (r) => {if (r.statusCode !== 200) throw new Error(r.statusCode)})"
+# Healthcheck
+HEALTHCHECK --interval=30s \
+            --timeout=5s \
+            --start-period=30s \
+            --retries=3 \
+    CMD wget -q --spider http://127.0.0.1:3000 || exit 1
 
-# Start the application
+# Start Nuxt
 CMD ["node", ".output/server/index.mjs"]
